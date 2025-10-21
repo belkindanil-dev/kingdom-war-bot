@@ -3,28 +3,33 @@ import asyncio
 from telegram import Update, InlineKeyboardMarkup, InlineKeyboardButton
 from telegram.ext import ApplicationBuilder, CommandHandler, CallbackQueryHandler, ContextTypes
 
-# Хранилище игроков и их королевств
+# --- Хранилище игроков и их королевств ---
 kingdoms = {}  # {user_id: Kingdom}
 
 class Kingdom:
     def __init__(self):
         self.resources = {'gold': 500, 'food': 300}
-        self.hp = 100  # Для PvP битвы
+        self.hp = 100
+        self.max_hp = 100
+        self.level = 1
+        self.attack_power = 1
+        self.defense = 1
 
 def get_or_create_kingdom(user_id):
     if user_id not in kingdoms:
         kingdoms[user_id] = Kingdom()
     return kingdoms[user_id]
 
-# Главное меню
+# --- Главное меню ---
 def main_menu():
     buttons = [
         [InlineKeyboardButton("⚔️ Атаковать NPC", callback_data='attack_menu')],
-        [InlineKeyboardButton("⚔️ Сразиться с игроком", callback_data='start_pvp')]
+        [InlineKeyboardButton("⚔️ Сразиться с игроком", callback_data='start_pvp')],
+        [InlineKeyboardButton("🏰 Развитие королевства", callback_data='upgrade_menu')]
     ]
     return InlineKeyboardMarkup(buttons)
 
-# Меню выбора NPC-атаки
+# --- Меню атак NPC ---
 def attack_menu():
     buttons = [
         [InlineKeyboardButton("Слабая армия", callback_data='attack_weak')],
@@ -33,34 +38,72 @@ def attack_menu():
     ]
     return InlineKeyboardMarkup(buttons)
 
-# Меню выбора противника PvP
+# --- Меню PvP ---
 def pvp_menu(current_user_id):
     opponents = [uid for uid in kingdoms.keys() if uid != current_user_id]
     if not opponents: return None
     buttons = [[InlineKeyboardButton(f"Игрок {uid}", callback_data=f"pvp_{uid}")] for uid in opponents]
     return InlineKeyboardMarkup(buttons)
 
-# HP панель для PvP
+# --- Меню апгрейдов ---
+def upgrade_menu():
+    buttons = [
+        [InlineKeyboardButton("Увеличить HP (+20) — 200 золота", callback_data='upgrade_hp')],
+        [InlineKeyboardButton("Увеличить атаку (+1) — 150 золота", callback_data='upgrade_attack')],
+        [InlineKeyboardButton("Увеличить защиту (+1) — 150 золота", callback_data='upgrade_defense')],
+        [InlineKeyboardButton("Назад", callback_data='main_menu')]
+    ]
+    return InlineKeyboardMarkup(buttons)
+
+# --- HP панель для PvP ---
 def hp_bar(hp):
     total = 20
     filled = int(max(hp,0) / 100 * total)
     empty = total - filled
     return "🟩" * filled + "⬛" * empty
 
-# Команда /start
+# --- Команда /start ---
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     get_or_create_kingdom(user_id)
-    await update.message.reply_text(
-        "Добро пожаловать в королевство! Выберите действие:",
-        reply_markup=main_menu()
-    )
+    await update.message.reply_text("Добро пожаловать в королевство! Выберите действие:", reply_markup=main_menu())
 
-# Обработка нажатий кнопок
+# --- Обработка апгрейдов ---
+async def handle_upgrade(query, kingdom, upgrade_type):
+    if upgrade_type == 'upgrade_hp':
+        cost = 200
+        if kingdom.resources['gold'] < cost:
+            await query.message.reply_text("❌ Недостаточно золота!")
+            return
+        kingdom.resources['gold'] -= cost
+        kingdom.max_hp += 20
+        kingdom.hp = kingdom.max_hp
+        await query.message.reply_text(f"✅ HP увеличено до {kingdom.max_hp}!")
+    
+    elif upgrade_type == 'upgrade_attack':
+        cost = 150
+        if kingdom.resources['gold'] < cost:
+            await query.message.reply_text("❌ Недостаточно золота!")
+            return
+        kingdom.resources['gold'] -= cost
+        kingdom.attack_power += 1
+        await query.message.reply_text(f"✅ Атака увеличена до {kingdom.attack_power}!")
+    
+    elif upgrade_type == 'upgrade_defense':
+        cost = 150
+        if kingdom.resources['gold'] < cost:
+            await query.message.reply_text("❌ Недостаточно золота!")
+            return
+        kingdom.resources['gold'] -= cost
+        kingdom.defense += 1
+        await query.message.reply_text(f"✅ Защита увеличена до {kingdom.defense}!")
+
+# --- Обработка кнопок ---
 async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
     user_id = query.from_user.id
+    kingdom = get_or_create_kingdom(user_id)
 
     if query.data == "main_menu":
         await query.edit_message_text("Выберите действие:", reply_markup=main_menu())
@@ -82,7 +125,13 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         defender_id = int(query.data.split("_")[1])
         await start_pvp(query, context, attacker_id=user_id, defender_id=defender_id)
 
-# Функция атаки на NPC
+    elif query.data == "upgrade_menu":
+        await query.edit_message_text("Выберите апгрейд:", reply_markup=upgrade_menu())
+    elif query.data in ['upgrade_hp','upgrade_attack','upgrade_defense']:
+        await handle_upgrade(query, kingdom, query.data)
+        await query.message.reply_text("Выберите действие:", reply_markup=main_menu())
+
+# --- Атака на NPC ---
 async def process_npc_attack(query, context, user_id, attack_type):
     kingdom = get_or_create_kingdom(user_id)
     rewards = {'attack_weak': {'gold': 100, 'food': 50}, 'attack_medium': {'gold': 250, 'food': 120}}
@@ -106,10 +155,14 @@ async def process_npc_attack(query, context, user_id, attack_type):
     try: await context.bot.delete_message(chat_id=query.message.chat_id, message_id=battle_msg.message_id)
     except: pass
 
+    # Учитываем бонусы атакой и защитой
+    attack_bonus = kingdom.attack_power
     outcome = random.choice(["win", "lose"])
 
     if outcome == "win":
         reward = rewards[attack_type]
+        reward['gold'] += 10*attack_bonus
+        reward['food'] += 5*attack_bonus
         kingdom.resources['gold'] += reward['gold']
         kingdom.resources['food'] += reward['food']
         await query.message.reply_animation(animation=victory_gif,
@@ -124,7 +177,7 @@ async def process_npc_attack(query, context, user_id, attack_type):
 
     await query.message.reply_text("⚔️ Битва окончена! Проверь статус королевства:", reply_markup=main_menu())
 
-# PvP битва с HP панелью
+# --- PvP битва ---
 async def start_pvp(query, context, attacker_id, defender_id):
     attacker = get_or_create_kingdom(attacker_id)
     defender = get_or_create_kingdom(defender_id)
@@ -134,7 +187,8 @@ async def start_pvp(query, context, attacker_id, defender_id):
                                        text=f"⚔️ Игрок {attacker_id} вызвал вас на бой!")
     except: pass
 
-    attacker.hp = defender.hp = 100
+    attacker.hp = attacker.max_hp
+    defender.hp = defender.max_hp
     battle_round = 1
 
     battle_msg = await query.message.reply_text(
@@ -143,8 +197,8 @@ async def start_pvp(query, context, attacker_id, defender_id):
 
     while attacker.hp > 0 and defender.hp > 0:
         await asyncio.sleep(2)
-        attack_damage = random.randint(10, 25)
-        defend_damage = random.randint(8, 20)
+        attack_damage = random.randint(10, 25) * attacker.attack_power
+        defend_damage = random.randint(8, 20) * defender.attack_power // defender.defense
         defender.hp -= attack_damage
         attacker.hp -= defend_damage
         battle_round += 1
@@ -181,12 +235,10 @@ async def start_pvp(query, context, attacker_id, defender_id):
 
     await query.message.reply_text("⚔️ Битва окончена!", reply_markup=main_menu())
 
-# Запуск бота
+# --- Запуск бота ---
 if __name__ == "__main__":
     app = ApplicationBuilder().token("8056012397:AAG7cQuWw38ozN8hCJv8NMH0fyjpbv_zb4E").build()
-
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CallbackQueryHandler(button_handler))
-
     print("Бот запущен...")
     app.run_polling()
