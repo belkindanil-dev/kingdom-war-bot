@@ -183,9 +183,12 @@ async def start_pvp(query, context, attacker_id, defender_id):
 
 # Запуск бота
 if __name__ == "__main__":
-    app = ApplicationBuilder().token(8056012397:AAG7cQuWw38ozN8hCJv8NMH0fyjpbv_zb4E
-).build()
+    # Вставляем твой токен прямо сюда
+    app = ApplicationBuilder().token("8056012397:AAG7cQuWw38ozN8hCJv8NMH0fyjpbv_zb4E").build()
+    
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CallbackQueryHandler(button_handler))
+    
     print("Бот запущен...")
     app.run_polling()
+
