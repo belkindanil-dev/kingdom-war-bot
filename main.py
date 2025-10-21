@@ -1,7 +1,7 @@
 import os
 import logging
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
-from telegram.ext import Updater, CommandHandler, CallbackQueryHandler, CallbackContext
+from telegram.ext import Application, CommandHandler, CallbackQueryHandler, ContextTypes
 
 # Настройка логирования
 logging.basicConfig(level=logging.INFO)
@@ -19,7 +19,7 @@ class Kingdom:
         self.buildings = {'farms': 1, 'mines': 1, 'barracks': 1}
         self.level = 1
 
-def start(update: Update, context: CallbackContext):
+async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     if user_id not in user_data:
         user_data[user_id] = Kingdom()
@@ -32,58 +32,57 @@ def start(update: Update, context: CallbackContext):
     ]
     reply_markup = InlineKeyboardMarkup(keyboard)
     
-    update.message.reply_text(
+    await update.message.reply_text(
         "👑 Добро пожаловать в королевство, Властелин!\nВыбери действие:",
         reply_markup=reply_markup
     )
 
-def show_status(update: Update, context: CallbackContext):
+async def show_status(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
-    query.answer()
+    await query.answer()
     user_id = query.from_user.id
     kingdom = user_data[user_id]
     
     status_text = f"""
-🏰 **Твое королевство** (Уровень {kingdom.level})
+🏰 Твое королевство (Уровень {kingdom.level})
 
-💎 **Ресурсы:**
+💎 Ресурсы:
 - Золото: {kingdom.resources['gold']}
 - Еда: {kingdom.resources['food']}
 - Дерево: {kingdom.resources['wood']}
 - Железо: {kingdom.resources['iron']}
 
-⚔️ **Армия:**
+⚔️ Армия:
 - Пехота: {kingdom.army['infantry']}
 - Лучники: {kingdom.army['archers']}
 - Рыцари: {kingdom.army['knights']}
 
-🏗 **Здания:**
+🏗 Здания:
 - Фермы: {kingdom.buildings['farms']}
 - Шахты: {kingdom.buildings['mines']}
 - Казармы: {kingdom.buildings['barracks']}
 """
-    query.edit_message_text(
+    await query.edit_message_text(
         text=status_text,
-        reply_markup=main_menu(),
-        parse_mode='Markdown'
+        reply_markup=main_menu()
     )
 
-def attack_menu(update: Update, context: CallbackContext):
+async def attack_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
-    query.answer()
+    await query.answer()
     keyboard = [
         [InlineKeyboardButton("🛡 Слабая армия (50 золота)", callback_data="attack_weak")],
         [InlineKeyboardButton("⚔️ Средняя армия (150 золота)", callback_data="attack_medium")],
         [InlineKeyboardButton("🔙 Назад", callback_data="back")]
     ]
-    query.edit_message_text(
-        text="⚔️ **Выбери цель для атаки:**\nЗа победу получишь ресурсы и золото!",
+    await query.edit_message_text(
+        text="⚔️ Выбери цель для атаки:\nЗа победу получишь ресурсы и золото!",
         reply_markup=InlineKeyboardMarkup(keyboard)
     )
 
-def process_attack(update: Update, context: CallbackContext):
+async def process_attack(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
-    query.answer()
+    await query.answer()
     user_id = query.from_user.id
     kingdom = user_data[user_id]
     attack_type = query.data
@@ -97,32 +96,32 @@ def process_attack(update: Update, context: CallbackContext):
         kingdom.resources['gold'] += reward['gold']
         kingdom.resources['food'] += reward['food']
         
-        query.edit_message_text(
-            text=f"🎉 **Победа!**\n\nТы победил вражескую армию и получил:\n💰 +{reward['gold']} золота\n🌾 +{reward['food']} еды",
+        await query.edit_message_text(
+            text=f"🎉 Победа!\n\nТы победил вражескую армию и получил:\n💰 +{reward['gold']} золота\n🌾 +{reward['food']} еды",
             reply_markup=main_menu()
         )
     else:
-        query.edit_message_text(
+        await query.edit_message_text(
             text="❌ Недостаточно золота для атаки!",
             reply_markup=main_menu()
         )
 
-def build_menu(update: Update, context: CallbackContext):
+async def build_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
-    query.answer()
+    await query.answer()
     keyboard = [
         [InlineKeyboardButton("🌾 Ферма (100 дерева)", callback_data="build_farm")],
         [InlineKeyboardButton("⛏ Шахта (150 дерева)", callback_data="build_mine")],
         [InlineKeyboardButton("🔙 Назад", callback_data="back")]
     ]
-    query.edit_message_text(
-        text="🏗 **Выбери здание для постройки:**",
+    await query.edit_message_text(
+        text="🏗 Выбери здание для постройки:",
         reply_markup=InlineKeyboardMarkup(keyboard)
     )
 
-def process_build(update: Update, context: CallbackContext):
+async def process_build(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
-    query.answer()
+    await query.answer()
     user_id = query.from_user.id
     kingdom = user_data[user_id]
     build_type = query.data
@@ -135,19 +134,19 @@ def process_build(update: Update, context: CallbackContext):
         building_key = build_type.replace('build_', '') + 's'
         kingdom.buildings[building_key] += 1
         
-        query.edit_message_text(
+        await query.edit_message_text(
             text=f"🏗 Ты построил {building_names[build_type]}!",
             reply_markup=main_menu()
         )
     else:
-        query.edit_message_text(
+        await query.edit_message_text(
             text="❌ Недостаточно дерева для строительства!",
             reply_markup=main_menu()
         )
 
-def collect_resources(update: Update, context: CallbackContext):
+async def collect_resources(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
-    query.answer()
+    await query.answer()
     user_id = query.from_user.id
     kingdom = user_data[user_id]
     
@@ -157,8 +156,8 @@ def collect_resources(update: Update, context: CallbackContext):
     kingdom.resources['food'] += food_collected
     kingdom.resources['gold'] += gold_collected
     
-    query.edit_message_text(
-        text=f"🌾 **Ресурсы собраны!**\n\nС ферм: +{food_collected} еды\nС шахт: +{gold_collected} золота",
+    await query.edit_message_text(
+        text=f"🌾 Ресурсы собраны!\n\nС ферм: +{food_collected} еды\nС шахт: +{gold_collected} золота",
         reply_markup=main_menu()
     )
 
@@ -171,10 +170,10 @@ def main_menu():
     ]
     return InlineKeyboardMarkup(keyboard)
 
-def back_to_main(update: Update, context: CallbackContext):
+async def back_to_main(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
-    query.answer()
-    query.edit_message_text(
+    await query.answer()
+    await query.edit_message_text(
         text="👑 Выбери действие:",
         reply_markup=main_menu()
     )
@@ -185,22 +184,20 @@ def main():
         return
     
     try:
-        updater = Updater(TOKEN, use_context=True)
-        dp = updater.dispatcher
+        application = Application.builder().token(TOKEN).build()
         
         # Обработчики команд
-        dp.add_handler(CommandHandler("start", start))
-        dp.add_handler(CallbackQueryHandler(show_status, pattern="^status$"))
-        dp.add_handler(CallbackQueryHandler(attack_menu, pattern="^attack$"))
-        dp.add_handler(CallbackQueryHandler(build_menu, pattern="^build$"))
-        dp.add_handler(CallbackQueryHandler(collect_resources, pattern="^collect$"))
-        dp.add_handler(CallbackQueryHandler(process_attack, pattern="^attack_"))
-        dp.add_handler(CallbackQueryHandler(process_build, pattern="^build_"))
-        dp.add_handler(CallbackQueryHandler(back_to_main, pattern="^back$"))
+        application.add_handler(CommandHandler("start", start))
+        application.add_handler(CallbackQueryHandler(show_status, pattern="^status$"))
+        application.add_handler(CallbackQueryHandler(attack_menu, pattern="^attack$"))
+        application.add_handler(CallbackQueryHandler(build_menu, pattern="^build$"))
+        application.add_handler(CallbackQueryHandler(collect_resources, pattern="^collect$"))
+        application.add_handler(CallbackQueryHandler(process_attack, pattern="^attack_"))
+        application.add_handler(CallbackQueryHandler(process_build, pattern="^build_"))
+        application.add_handler(CallbackQueryHandler(back_to_main, pattern="^back$"))
         
-        logger.info("Бот запускается...")
-        updater.start_polling()
-        updater.idle()
+        logger.info("Бот запускается... 🎮")
+        application.run_polling()
         
     except Exception as e:
         logger.error(f"Ошибка при запуске бота: {e}")
