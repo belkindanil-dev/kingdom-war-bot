@@ -81,20 +81,20 @@ async def attack_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
     kingdom = get_or_create_kingdom(user_id)
     
     keyboard = [
-        [InlineKeyboardButton("🛡 Слабая армия (50 золота)", callback_data="attack_weak")],
+        [InlineKeyboardButton("🛡️ Слабая армия (50 золота)", callback_data="attack_weak")],
         [InlineKeyboardButton("⚔️ Средняя армия (150 золота)", callback_data="attack_medium")],
         [InlineKeyboardButton("🔙 Назад", callback_data="back")]
     ]
     
-    # Гифка перед выбором атаки
-    preparation_gif = "https://media.giphy.com/media/3o7TKSha51ATTx9KzC/giphy.gif"
-    await query.message.reply_animation(
-        animation=preparation_gif,
-        caption="🎯 Выбери цель для атаки!"
-    )
+    # Анимированное сообщение подготовки
+    prep_message = await query.message.reply_text("🎯 Подготовка к выбору цели... 🗺️")
+    await asyncio.sleep(1)
+    await prep_message.edit_text("🎯 Выбери цель для атаки! 🎯")
     
     await query.edit_message_text(
-        text="⚔️ **Выбери цель для атаки:**\n\n🛡 Слабая армия - легкая победа\n⚔️ Средняя армия - больше добычи",
+        text="⚔️ **Выбери цель для атаки:**\n\n"
+             "🛡️ Слабая армия - легкая победа\n"
+             "⚔️ Средняя армия - больше добычи",
         reply_markup=InlineKeyboardMarkup(keyboard)
     )
 
@@ -112,29 +112,34 @@ async def process_attack(update: Update, context: ContextTypes.DEFAULT_TYPE):
         kingdom.resources['gold'] -= cost[attack_type]
         reward = rewards[attack_type]
         
-        # Гифки для разных типов атак
-        battle_gifs = {
-            'attack_weak': "https://media.giphy.com/media/l0MYt5jPR6QX5pnqM/giphy.gif",  # Малая битва
-            'attack_medium': "https://media.giphy.com/media/3o7abGQa0aRsohveX6/giphy.gif"  # Средняя битва
-        }
+        # Создаем анимацию через эмодзи и текст
+        battle_messages = [
+            "⚔️ Подготовка к битве... 🛡️",
+            "⚔️ Войска выдвигаются... 🏹", 
+            "⚔️ Идет ожесточенная битва... ⚡",
+            "⚔️ Противник отступает... 🏃‍♂️",
+            "🎉 ПОБЕДА! 🏆"
+        ]
         
-        # Отправляем гифку сражения
-        await query.message.reply_animation(
-            animation=battle_gifs[attack_type],
-            caption="⚔️ Идет ожесточенная битва..."
-        )
+        # Посылаем сообщения с задержкой для эффекта анимации
+        battle_message = await query.message.reply_text(battle_messages[0])
+        await asyncio.sleep(1)
         
-        # Задержка для драматизма
-        await asyncio.sleep(2)
+        for i in range(1, 4):
+            await battle_message.edit_text(battle_messages[i])
+            await asyncio.sleep(1)
         
+        # Обновляем ресурсы после победы
         kingdom.resources['gold'] += reward['gold']
         kingdom.resources['food'] += reward['food']
         
-        # Гифка победы
-        victory_gif = "https://media.giphy.com/media/xULW8N9O5QLy9pDfos/giphy.gif"
-        await query.message.reply_animation(
-            animation=victory_gif,
-            caption=f"🎉 ПОБЕДА!\n\nДобыча: 💰 +{reward['gold']} золота, 🌾 +{reward['food']} еды"
+        # Финальное сообщение о победе
+        await battle_message.edit_text(
+            f"{battle_messages[4]}\n\n"
+            f"🎯 Добыча:\n"
+            f"💰 +{reward['gold']} золота\n" 
+            f"🌾 +{reward['food']} еды\n\n"
+            f"💪 Твоя армия победила!"
         )
         
         await query.edit_message_text(
