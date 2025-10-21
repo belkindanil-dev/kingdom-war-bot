@@ -3,8 +3,13 @@ import logging
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import Application, CommandHandler, CallbackQueryHandler, ContextTypes
 
+# Настройка логирования
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
+
 TOKEN = os.getenv('TELEGRAM_TOKEN')
 
+# Игровые данные пользователей
 user_data = {}
 
 class Kingdom:
@@ -27,7 +32,10 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     ]
     reply_markup = InlineKeyboardMarkup(keyboard)
     
-    await update.message.reply_text("👑 Добро пожаловать в королевство!", reply_markup=reply_markup)
+    await update.message.reply_text(
+        "👑 Добро пожаловать в королевство, Властелин!\nВыбери действие:",
+        reply_markup=reply_markup
+    )
 
 async def show_status(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
@@ -54,7 +62,7 @@ async def show_status(update: Update, context: ContextTypes.DEFAULT_TYPE):
 - Шахты: {kingdom.buildings['mines']}
 - Казармы: {kingdom.buildings['barracks']}
 """
-    await query.edit_message_text(status_text, reply_markup=main_menu())
+    await query.edit_message_text(status_text, reply_markup=main_menu(), parse_mode='Markdown')
 
 async def attack_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
@@ -64,7 +72,10 @@ async def attack_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
         [InlineKeyboardButton("⚔️ Средняя армия (150 золота)", callback_data="attack_medium")],
         [InlineKeyboardButton("🔙 Назад", callback_data="back")]
     ]
-    await query.edit_message_text("⚔️ Выбери цель для атаки:", reply_markup=InlineKeyboardMarkup(keyboard))
+    await query.edit_message_text(
+        "⚔️ **Выбери цель для атаки:**\nЗа победу получишь ресурсы и золото!",
+        reply_markup=InlineKeyboardMarkup(keyboard)
+    )
 
 async def process_attack(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
@@ -81,9 +92,16 @@ async def process_attack(update: Update, context: ContextTypes.DEFAULT_TYPE):
         reward = rewards[attack_type]
         kingdom.resources['gold'] += reward['gold']
         kingdom.resources['food'] += reward['food']
-        await query.edit_message_text(f"🎉 Победа! Получил: 💰+{reward['gold']} золота, 🌾+{reward['food']} еды", reply_markup=main_menu())
+        
+        await query.edit_message_text(
+            f"🎉 **Победа!**\n\nТы победил вражескую армию и получил:\n💰 +{reward['gold']} золота\n🌾 +{reward['food']} еды",
+            reply_markup=main_menu()
+        )
     else:
-        await query.edit_message_text("❌ Недостаточно золота!", reply_markup=main_menu())
+        await query.edit_message_text(
+            "❌ Недостаточно золота для атаки!",
+            reply_markup=main_menu()
+        )
 
 async def build_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
@@ -93,7 +111,10 @@ async def build_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
         [InlineKeyboardButton("⛏ Шахта (150 дерева)", callback_data="build_mine")],
         [InlineKeyboardButton("🔙 Назад", callback_data="back")]
     ]
-    await query.edit_message_text("🏗 Выбери здание:", reply_markup=InlineKeyboardMarkup(keyboard))
+    await query.edit_message_text(
+        "🏗 **Выбери здание для постройки:**",
+        reply_markup=InlineKeyboardMarkup(keyboard)
+    )
 
 async def process_build(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
@@ -109,9 +130,16 @@ async def process_build(update: Update, context: ContextTypes.DEFAULT_TYPE):
         kingdom.resources['wood'] -= costs[build_type]['wood']
         building_key = build_type.replace('build_', '') + 's'
         kingdom.buildings[building_key] += 1
-        await query.edit_message_text(f"🏗 Построил {building_names[build_type]}!", reply_markup=main_menu())
+        
+        await query.edit_message_text(
+            f"🏗 Ты построил {building_names[build_type]}!",
+            reply_markup=main_menu()
+        )
     else:
-        await query.edit_message_text("❌ Недостаточно дерева!", reply_markup=main_menu())
+        await query.edit_message_text(
+            "❌ Недостаточно дерева для строительства!",
+            reply_markup=main_menu()
+        )
 
 async def collect_resources(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
@@ -121,10 +149,14 @@ async def collect_resources(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     food_collected = kingdom.buildings['farms'] * 50
     gold_collected = kingdom.buildings['mines'] * 30
+    
     kingdom.resources['food'] += food_collected
     kingdom.resources['gold'] += gold_collected
     
-    await query.edit_message_text(f"🌾 Собрано: +{food_collected} еды, +{gold_collected} золота", reply_markup=main_menu())
+    await query.edit_message_text(
+        f"🌾 **Ресурсы собраны!**\n\nС ферм: +{food_collected} еды\nС шахт: +{gold_collected} золота",
+        reply_markup=main_menu()
+    )
 
 def main_menu():
     keyboard = [
@@ -138,21 +170,34 @@ def main_menu():
 async def back_to_main(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
-    await query.edit_message_text("👑 Выбери действие:", reply_markup=main_menu())
+    await query.edit_message_text(
+        "👑 Выбери действие:",
+        reply_markup=main_menu()
+    )
 
 def main():
-    application = Application.builder().token(TOKEN).build()
-    application.add_handler(CommandHandler("start", start))
-    application.add_handler(CallbackQueryHandler(show_status, pattern="^status$"))
-    application.add_handler(CallbackQueryHandler(attack_menu, pattern="^attack$"))
-    application.add_handler(CallbackQueryHandler(build_menu, pattern="^build$"))
-    application.add_handler(CallbackQueryHandler(collect_resources, pattern="^collect$"))
-    application.add_handler(CallbackQueryHandler(process_attack, pattern="^attack_"))
-    application.add_handler(CallbackQueryHandler(process_build, pattern="^build_"))
-    application.add_handler(CallbackQueryHandler(back_to_main, pattern="^back$"))
+    if not TOKEN:
+        logger.error("Токен не найден! Проверь переменную TELEGRAM_TOKEN")
+        return
     
-    print("Бот запущен! 🎮")
-    application.run_polling()
+    try:
+        application = Application.builder().token(TOKEN).build()
+        
+        # Обработчики команд
+        application.add_handler(CommandHandler("start", start))
+        application.add_handler(CallbackQueryHandler(show_status, pattern="^status$"))
+        application.add_handler(CallbackQueryHandler(attack_menu, pattern="^attack$"))
+        application.add_handler(CallbackQueryHandler(build_menu, pattern="^build$"))
+        application.add_handler(CallbackQueryHandler(collect_resources, pattern="^collect$"))
+        application.add_handler(CallbackQueryHandler(process_attack, pattern="^attack_"))
+        application.add_handler(CallbackQueryHandler(process_build, pattern="^build_"))
+        application.add_handler(CallbackQueryHandler(back_to_main, pattern="^back$"))
+        
+        logger.info("Бот запускается...")
+        application.run_polling()
+        
+    except Exception as e:
+        logger.error(f"Ошибка при запуске бота: {e}")
 
 if __name__ == "__main__":
     main()
