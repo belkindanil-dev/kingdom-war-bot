@@ -511,3 +511,40 @@ def main():
 
 if __name__ == "__main__":
     main()
+from http.server import HTTPServer, BaseHTTPRequestHandler
+import threading
+
+class HealthHandler(BaseHTTPRequestHandler):
+    def do_GET(self):
+        self.send_response(200)
+        self.send_header('Content-type', 'text/plain')
+        self.end_headers()
+        self.wfile.write(b'Sticker Battle Bot is running!')
+    
+    def log_message(self, format, *args):
+        pass  # Отключаем логирование запросов
+
+def start_health_server():
+    port = int(os.getenv('PORT', 8080))
+    server = HTTPServer(('0.0.0.0', port), HealthHandler)
+    print(f"✅ Health server started on port {port}")
+    server.serve_forever()
+
+if __name__ == "__main__":
+    # Запускаем HTTP сервер в отдельном потоке
+    server_thread = threading.Thread(target=start_health_server, daemon=True)
+    server_thread.start()
+    
+    # Запускаем бота
+    if not TOKEN:
+        logger.error("❌ Токен не найден! Добавь TELEGRAM_TOKEN в Environment Variables")
+    else:
+        application = Application.builder().token(TOKEN).build()
+        
+        # Обработчики команд
+        application.add_handler(CommandHandler("start", start))
+        application.add_handler(CommandHandler("accept", accept_duel))
+        application.add_handler(CallbackQueryHandler(button_handler))
+        
+        logger.info("🎮 Битва Стикеров запускается...")
+        application.run_polling()
