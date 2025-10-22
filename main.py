@@ -855,3 +855,33 @@ if __name__ == "__main__":
         except Exception as e:
             logger.error(f"❌ Ошибка при запуске бота: {e}")
             print(f"❌ Критическая ошибка: {e}")
+            # Автопинг чтобы Render не усыплял
+import requests
+import threading
+import time
+
+def auto_ping():
+    """Автоматически пингует сервис каждые 10 минут"""
+    time.sleep(10)  # Ждем запуска бота
+    
+    while True:
+        try:
+            # Получаем URL из переменных окружения Render
+            render_url = os.getenv('RENDER_EXTERNAL_URL')
+            if render_url:
+                response = requests.get(render_url, timeout=10)
+                print(f"✅ Автопинг отправлен: {response.status_code}")
+            else:
+                # Если нет URL, используем стандартный
+                bot_name = os.getenv('RENDER_SERVICE_NAME', 'sticker-battle-bot')
+                requests.get(f'https://{bot_name}.onrender.com', timeout=10)
+                print("✅ Автопинг отправлен (стандартный URL)")
+        except Exception as e:
+            print(f"⚠️ Автопинг не удался: {e}")
+        
+        # Ждем 10 минут до следующего пинга
+        time.sleep(600)
+
+# Запускаем автопинг в фоне
+ping_thread = threading.Thread(target=auto_ping, daemon=True)
+ping_thread.start()
