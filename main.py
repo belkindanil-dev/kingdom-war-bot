@@ -838,3 +838,20 @@ if __name__ == "__main__":
     # Запускаем бота
     if not TOKEN:
         logger.error
+            # Запускаем бота
+    if not TOKEN:
+        logger.error("❌ Токен не найден! Добавь TELEGRAM_TOKEN в Environment Variables")
+    else:
+        try:
+            application = Application.builder().token(TOKEN).build()
+            application.add_handler(CommandHandler("start", start))
+            application.add_handler(CommandHandler("accept", accept_duel))
+            application.add_handler(CallbackQueryHandler(button_handler))
+            
+            logger.info("🎮 Битва Стикеров запускается...")
+            print("✅ Бот успешно запущен и готов к работе!")
+            application.run_polling()
+            
+        except Exception as e:
+            logger.error(f"❌ Ошибка при запуске бота: {e}")
+            print(f"❌ Критическая ошибка: {e}")
