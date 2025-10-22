@@ -371,6 +371,326 @@ async def find_duel(query, player_id, ranked=False):
         reply_markup=main_menu()
     )
 
+# --- Пригласить друга ---
+async def invite_friend(query, player_id):
+    player = players[player_id]
+    invite_id = f"{player_id}_{datetime.now().timestamp()}"
+    
+    pending_invites[invite_id] = {
+        "from_player": player_id,
+        "to_player": None,  # Будет установлен при принятии
+        "created_at": datetime.now()
+    }
+    
+    invite_text = (
+        f"🎯 **Приглашение на дуэль**\n\n"
+        f"Игрок {player.username} вызывает тебя на магическую дуэль!\n"
+        f"Отправь этот код другу: `{invite_id}`\n\n"
+        f"Друг должен использовать команду:\n"
+        f"`/accept {invite_id}`"
+    )
+    
+    await query.edit_message_text(invite_text, reply_markup=main_menu())
+
+# --- Команда принятия дуэли ---
+async def accept_duel(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.effective_user.id
+    username = update.effective_user.username or "Игрок"
+    
+    if not context.args:
+        await update.message.reply_text("❌ Укажи код приглашения: `/accept КОД`")
+        return
+    
+    invite_id = context.args[0]
+    
+    if invite_id not in pending_invites:
+        await update.message.reply_text("❌ Неверный код приглашения или время истекло!")
+        return
+    
+    invite = pending_invites[invite_id]
+    from_player_id = invite["from_player"]
+    
+    if from_player_id == user_id:
+        await update.message.reply_text("❌ Нельзя принять собственное приглашение!")
+        return
+    
+    # Создаем дуэль
+    duel_id = f"{from_player_id}_{user_id}"
+    active_duels[duel_id] = Duel(from_player_id, user_id)
+    
+    # Удаляем приглашение
+    del pending_invites[invite_id]
+    
+    # Уведомляем обоих игроков
+    from_player = players[from_player_id]
+    
+    await update.message.reply_text(
+        f"✅ Ты принял вызов от {from_player.username}! Начинаем дуэль! ⚔️"
+    )
+    
+    await context.bot.send_message(
+        chat_id=from_player_id,
+        text=f"✅ {username} принял твой вызов! Начинаем дуэль! ⚔️"
+    )
+    
+    # Начинаем дуэль
+    await start_duel_round(context, duel_id)
+
+# --- Начало раунда дуэли ---
+async def start_duel_round(context, duel_id):
+    duel = active_duels[duel_id]
+    
+    # Отправляем меню выбора стикеров обоим игрокам
+    for player_id in [duel.player1_id, duel.player2_id]:
+        try:
+            player = players[player_id]
+            opponent_id = duel.player2_id if player_id == duel.player1_id else duel.player1_id
+            opponent = players[opponent_id]
+            
+            round_text = (
+                f"⚔️ **Раунд {duel.round}**\n\n"
+                f"❤️ Твое HP: {duel.player1_hp if player_id == duel.player1_id else duel.player2_hp}/10\n"
+                f"⚡ HP противника ({opponent.username}): {duel.player2_hp if player_id == duel.player1_id else duel.player1_hp}/10\n\n"
+                f"⏱ Выбери стикер за 30 секунд:"
+            )
+            
+            await context.bot.send_message(
+                chat_id=player_id,
+                text=round_text,
+                reply_markup=sticker_menu(player_id)
+            )
+        except Exception as e:
+            logger.error(f"Ошибка отправки сообщения игроку {player_id}: {e}")
+
+# --- Обработка выбора стикера ---
+async def process_sticker_choice(query, sticker_id, player_id, context):
+    # Находим активную дуэль игрока
+    duel = None
+    duel_id = None
+    
+    for d_id, d in active_duels.items():
+        if player_id in [d.player1_id, d.player2_id]:
+            duel = d
+            duel_id = d_id
+            break
+    
+    if not duel:
+        await query.edit_message_text("❌ Дуэль не найдена!", reply_markup=main_menu())
+        return
+    
+    # Сохраняем выбор игрока
+    if player_id == duel.player1_id:
+        duel.player1_choice = sticker_id
+        player_name = players[player_id].username
+        # Уведомляем противника
+        try:
+            await context.bot.send_message(
+                chat_id=duel.player2_id,
+                text=f"⚡ {player_name} сделал свой выбор! Твой ход!"
+            )
+        except:
+            pass
+    else:
+        duel.player2_choice = sticker_id
+        player_name = players[player_id].username
+        # Уведомляем противника
+        try:
+            await context.bot.send_message(
+                chat_id=duel.player1_id,
+                text=f"⚡ {player_name} сделал свой выбор! Твой ход!"
+            )
+        except:
+            pass
+    
+    await query.edit_message_text(f"✅ Ты выбрал: {STICKERS[sticker_id]['name']}\n⏳ Ждем противника...")
+    
+    # Проверяем, оба ли игрока сделали выбор
+    if duel.player1_choice and duel.player2_choice:
+        await asyncio.sleep(1)  # Небольшая задержка для драматизма
+        await process_duel_round(context, duel_id)
+
+# --- Обработка раунда дуэли ---
+async def process_duel_round(context, duel_id):
+    duel = active_duels[duel_id]
+    player1 = players[duel.player1_id]
+    player2 = players[duel.player2_id]
+    
+    sticker1 = STICKERS[duel.player1_choice]
+    sticker2 = STICKERS[duel.player2_choice]
+    
+    # Обновляем прогресс заданий для использованных стикеров
+    if sticker1["name"] == "🔥 Огненный шар":
+        update_quest_progress(duel.player1_id, "use_fireball")
+    if sticker2["name"] == "🔥 Огненный шар":
+        update_quest_progress(duel.player2_id, "use_fireball")
+    
+    # Вычисляем результат раунда
+    damage_to_p2 = 0
+    damage_to_p1 = 0
+    heal_p1 = 0
+    heal_p2 = 0
+    
+    battle_log = []
+    
+    # Обработка выбора игрока 1
+    if sticker1["type"] == "attack":
+        if random.random() > sticker1.get("miss_chance", 0):
+            damage = sticker1["power"]
+            if sticker2["type"] == "defense":
+                blocked = min(damage, sticker2["power"])
+                damage_to_p2 = damage - blocked
+                battle_log.append(f"🔥 {player1.username} атакует {sticker1['name']} ({damage} урона)")
+                battle_log.append(f"❄️ {player2.username} блокирует {blocked} урона {sticker2['name']}")
+                
+                if sticker2.get("counter_damage"):
+                    damage_to_p1 = sticker2["counter_damage"]
+                    battle_log.append(f"⚡ Отраженный урон: {damage_to_p1} к {player1.username}")
+            else:
+                damage_to_p2 = damage
+                battle_log.append(f"🔥 {player1.username} атакует {sticker1['name']} ({damage} урона)")
+        else:
+            battle_log.append(f"💫 {player1.username} промахивается с {sticker1['name']}!")
+    
+    elif sticker1["type"] == "heal":
+        heal_p1 = min(sticker1["power"], 10 - duel.player1_hp)
+        duel.player1_hp += heal_p1
+        battle_log.append(f"💚 {player1.username} восстанавливает {heal_p1} HP")
+        # Обновляем прогресс задания по лечению
+        update_quest_progress(duel.player1_id, "use_heal", heal_p1)
+    
+    # Обработка выбора игрока 2
+    if sticker2["type"] == "attack":
+        if random.random() > sticker2.get("miss_chance", 0):
+            damage = sticker2["power"]
+            if sticker1["type"] == "defense":
+                blocked = min(damage, sticker1["power"])
+                damage_to_p1 = damage - blocked
+                battle_log.append(f"🔥 {player2.username} атакует {sticker2['name']} ({damage} урона)")
+                battle_log.append(f"❄️ {player1.username} блокирует {blocked} урона {sticker1['name']}")
+                
+                if sticker1.get("counter_damage"):
+                    damage_to_p2 = sticker1["counter_damage"]
+                    battle_log.append(f"⚡ Отраженный урон: {damage_to_p2} к {player2.username}")
+            else:
+                damage_to_p1 = damage
+                battle_log.append(f"🔥 {player2.username} атакует {sticker2['name']} ({damage} урона)")
+        else:
+            battle_log.append(f"💫 {player2.username} промахивается с {sticker2['name']}!")
+    
+    elif sticker2["type"] == "heal":
+        heal_p2 = min(sticker2["power"], 10 - duel.player2_hp)
+        duel.player2_hp += heal_p2
+        battle_log.append(f"💚 {player2.username} восстанавливает {heal_p2} HP")
+        # Обновляем прогресс задания по лечению
+        update_quest_progress(duel.player2_id, "use_heal", heal_p2)
+    
+    # Применяем урон
+    duel.player1_hp = max(0, duel.player1_hp - damage_to_p1)
+    duel.player2_hp = max(0, duel.player2_hp - damage_to_p2)
+    
+    # Отправляем результаты обоим игрокам
+    result_text = "\n".join(battle_log) + f"\n\n❤️ {player1.username}: {duel.player1_hp}/10 HP\n❤️ {player2.username}: {duel.player2_hp}/10 HP"
+    
+    for player_id in [duel.player1_id, duel.player2_id]:
+        try:
+            await context.bot.send_message(chat_id=player_id, text=result_text)
+        except Exception as e:
+            logger.error(f"Ошибка отправки результата игроку {player_id}: {e}")
+    
+    # Проверяем конец дуэли
+    if duel.player1_hp <= 0 or duel.player2_hp <= 0:
+        await end_duel(context, duel_id)
+    else:
+        # Следующий раунд
+        duel.round += 1
+        duel.player1_choice = None
+        duel.player2_choice = None
+        await asyncio.sleep(3)
+        await start_duel_round(context, duel_id)
+
+# --- Завершение дуэли ---
+async def end_duel(context, duel_id):
+    duel = active_duels[duel_id]
+    player1 = players[duel.player1_id]
+    player2 = players[duel.player2_id]
+    
+    if duel.player1_hp <= 0:
+        winner = player2
+        loser = player1
+    else:
+        winner = player1
+        loser = player2
+    
+    # Награды
+    exp_gain = 25
+    crystals_gain = 15
+    
+    # Обновляем рейтинг для рейтинговых дуэлей
+    if duel.ranked:
+        rating_change = 25
+        winner.rating += rating_change
+        loser.rating = max(100, loser.rating - rating_change // 2)
+        rating_text = f"📈 Рейтинг: +{rating_change}⭐\n"
+    else:
+        rating_text = ""
+    
+    winner.wins += 1
+    winner.exp += exp_gain
+    winner.crystals += crystals_gain
+    
+    loser.losses += 1
+    loser.exp += exp_gain // 2
+    
+    # Обновляем прогресс заданий
+    update_quest_progress(winner.user_id, "win_3")
+    update_quest_progress(loser.user_id, "win_3")
+    
+    if duel.ranked:
+        update_quest_progress(winner.user_id, "win_ranked")
+    
+    # Проверка повышения уровня
+    if winner.exp >= 100:
+        winner.level += 1
+        winner.exp = 0
+        level_up_msg = f"🎉 Поздравляем! Ты достиг {winner.level} уровня!\n"
+    else:
+        level_up_msg = ""
+    
+    # Сообщения игрокам
+    winner_text = (
+        f"🏆 **ПОБЕДА!** 🎉\n\n"
+        f"Ты победил {loser.username} в магической дуэли!\n\n"
+        f"🎯 Награды:\n"
+        f"⭐ +{exp_gain} опыта\n"
+        f"💎 +{crystals_gain} кристаллов\n"
+        f"{rating_text}"
+        f"{level_up_msg}\n"
+        f"Выбери следующее действие:"
+    )
+    
+    loser_text = (
+        f"💀 **Поражение**\n\n"
+        f"Ты проиграл магическую дуэль против {winner.username}\n\n"
+        f"🎯 Награды:\n"
+        f"⭐ +{exp_gain//2} опыта\n"
+        f"{rating_text}"
+        f"💪 Не сдавайся! Попробуй снова!\n\n"
+        f"Выбери следующее действие:"
+    )
+    
+    for player_id, text in [(winner.user_id, winner_text), (loser.user_id, loser_text)]:
+        try:
+            await context.bot.send_message(
+                chat_id=player_id,
+                text=text,
+                reply_markup=main_menu()
+            )
+        except Exception as e:
+            logger.error(f"Ошибка отправки финального сообщения игроку {player_id}: {e}")
+    
+    # Удаляем дуэль
+    del active_duels[duel_id]
+
 # --- Магазин ---
 async def handle_shop_purchase(query, player, purchase_type, item_id):
     if purchase_type == 'set':
@@ -490,109 +810,7 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         sticker_id = query.data.replace('sticker_', '')
         await process_sticker_choice(query, sticker_id, user_id, context)
 
-# --- Остальные функции (invite_friend, accept_duel, process_sticker_choice, process_duel_round, end_duel) ---
-# Оставляем их без изменений из предыдущего кода, но добавляем обновление рейтинга и заданий
-
-async def end_duel(context, duel_id):
-    duel = active_duels[duel_id]
-    player1 = players[duel.player1_id]
-    player2 = players[duel.player2_id]
-    
-    if duel.player1_hp <= 0:
-        winner = player2
-        loser = player1
-    else:
-        winner = player1
-        loser = player2
-    
-    # Награды
-    exp_gain = 25
-    crystals_gain = 15
-    
-    # Обновляем рейтинг для рейтинговых дуэлей
-    if duel.ranked:
-        rating_change = 25
-        winner.rating += rating_change
-        loser.rating = max(100, loser.rating - rating_change // 2)
-        rating_text = f"📈 Рейтинг: +{rating_change}⭐\n"
-    else:
-        rating_text = ""
-    
-    winner.wins += 1
-    winner.exp += exp_gain
-    winner.crystals += crystals_gain
-    
-    loser.losses += 1
-    loser.exp += exp_gain // 2
-    
-    # Обновляем прогресс заданий
-    update_quest_progress(winner.user_id, "win_3")
-    update_quest_progress(loser.user_id, "win_3")
-    
-    if duel.ranked:
-        update_quest_progress(winner.user_id, "win_ranked")
-    
-    # Проверка повышения уровня
-    if winner.exp >= 100:
-        winner.level += 1
-        winner.exp = 0
-        level_up_msg = f"🎉 Поздравляем! Ты достиг {winner.level} уровня!\n"
-    else:
-        level_up_msg = ""
-    
-    # Сообщения игрокам
-    winner_text = (
-        f"🏆 **ПОБЕДА!** 🎉\n\n"
-        f"Ты победил {loser.username} в магической дуэли!\n\n"
-        f"🎯 Награды:\n"
-        f"⭐ +{exp_gain} опыта\n"
-        f"💎 +{crystals_gain} кристаллов\n"
-        f"{rating_text}"
-        f"{level_up_msg}\n"
-        f"Выбери следующее действие:"
-    )
-    
-    loser_text = (
-        f"💀 **Поражение**\n\n"
-        f"Ты проиграл магическую дуэль против {winner.username}\n\n"
-        f"🎯 Награды:\n"
-        f"⭐ +{exp_gain//2} опыта\n"
-        f"{rating_text}"
-        f"💪 Не сдавайся! Попробуй снова!\n\n"
-        f"Выбери следующее действие:"
-    )
-    
-    for player_id, text in [(winner.user_id, winner_text), (loser.user_id, loser_text)]:
-        try:
-            await context.bot.send_message(
-                chat_id=player_id,
-                text=text,
-                reply_markup=main_menu()
-            )
-        except Exception as e:
-            logger.error(f"Ошибка отправки финального сообщения игроку {player_id}: {e}")
-    
-    # Удаляем дуэль
-    del active_duels[duel_id]
-
-# Добавляем обновление прогресса заданий в process_duel_round
-async def process_duel_round(context, duel_id):
-    duel = active_duels[duel_id]
-    player1 = players[duel.player1_id]
-    player2 = players[duel.player2_id]
-    
-    sticker1 = STICKERS[duel.player1_choice]
-    sticker2 = STICKERS[duel.player2_choice]
-    
-    # Обновляем прогресс заданий для использованных стикеров
-    if sticker1["name"] == "🔥 Огненный шар":
-        update_quest_progress(duel.player1_id, "use_fireball")
-    if sticker2["name"] == "🔥 Огненный шар":
-        update_quest_progress(duel.player2_id, "use_fireball")
-    
-    # ... остальная логика process_duel_round без изменений ...
-
-# HTTP сервер и запуск (оставляем без изменений)
+# --- HTTP сервер для Render ---
 from http.server import HTTPServer, BaseHTTPRequestHandler
 import threading
 
@@ -619,12 +837,4 @@ if __name__ == "__main__":
     
     # Запускаем бота
     if not TOKEN:
-        logger.error("❌ Токен не найден! Добавь TELEGRAM_TOKEN в Environment Variables")
-    else:
-        application = Application.builder().token(TOKEN).build()
-        application.add_handler(CommandHandler("start", start))
-        application.add_handler(CommandHandler("accept", accept_duel))
-        application.add_handler(CallbackQueryHandler(button_handler))
-        
-        logger.info("🎮 Битва Стикеров запускается...")
-        application.run_polling()
+        logger.error
