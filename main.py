@@ -1,3 +1,21 @@
+async def check_duel_readiness():
+    """Периодически проверяет готовность дуэлей"""
+    while True:
+        await asyncio.sleep(2)  # Проверяем каждые 2 секунды
+        
+        for duel_id, duel in list(active_duels.items()):
+            if duel.player1_choice and duel.player2_choice:
+                # Оба игрока сделали выбор - обрабатываем раунд
+                try:
+                    from telegram.ext import ApplicationBuilder
+                    application = ApplicationBuilder().token(TOKEN).build()
+                    await process_duel_round(application, duel_id)
+                except Exception as e:
+                    logger.error(f"Ошибка обработки дуэли {duel_id}: {e}")
+
+# Запускаем проверку в отдельной задаче
+import asyncio
+asyncio.create_task(check_duel_readiness())
 import random
 import asyncio
 import os
@@ -309,7 +327,10 @@ async def process_sticker_choice(query, sticker_id, player_id):
     
     # Проверяем, оба ли игрока сделали выбор
     if duel.player1_choice and duel.player2_choice:
-        await process_duel_round(context, duel_id)
+        # Получаем context из глобальной переменной или создаем
+        from telegram.ext import ApplicationBuilder
+        application = ApplicationBuilder().token(TOKEN).build()
+        await process_duel_round(application, duel_id)
 
 # --- Обработка раунда дуэли ---
 async def process_duel_round(context, duel_id):
@@ -491,7 +512,36 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     elif query.data.startswith('sticker_'):
         sticker_id = query.data.replace('sticker_', '')
-        await process_sticker_choice(query, sticker_id, user_id)
+        # Передаем context в функцию
+        await process_sticker_choice_with_context(query, sticker_id, user_id, context)
+
+# Новая функция с context
+async def process_sticker_choice_with_context(query, sticker_id, player_id, context):
+    # Находим активную дуэль игрока
+    duel = None
+    duel_id = None
+    
+    for d_id, d in active_duels.items():
+        if player_id in [d.player1_id, d.player2_id]:
+            duel = d
+            duel_id = d_id
+            break
+    
+    if not duel:
+        await query.edit_message_text("❌ Дуэль не найдена!", reply_markup=main_menu())
+        return
+    
+    # Сохраняем выбор игрока
+    if player_id == duel.player1_id:
+        duel.player1_choice = sticker_id
+    else:
+        duel.player2_choice = sticker_id
+    
+    await query.edit_message_text(f"✅ Ты выбрал: {STICKERS[sticker_id]['name']}\n⏳ Ждем противника...")
+    
+    # Проверяем, оба ли игрока сделали выбор
+    if duel.player1_choice and duel.player2_choice:
+        await process_duel_round(context, duel_id)
 
 # --- Запуск бота ---
 def main():
