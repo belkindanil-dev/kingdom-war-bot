@@ -308,6 +308,8 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     username = update.effective_user.username or "Игрок"
     
+    print(f"🔧 DEBUG: /start вызван пользователем {username} (ID: {user_id})")
+    
     player = get_or_create_player(user_id, username)
     
     welcome_text = (
@@ -321,8 +323,9 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "Выбери действие:"
     )
     
+    print(f"✅ DEBUG: Отправляю приветственное сообщение для {username}")
+    
     await update.message.reply_text(welcome_text, reply_markup=main_menu())
-
 # --- Показать профиль ---
 async def show_profile(query, player):
     profile_text = (
