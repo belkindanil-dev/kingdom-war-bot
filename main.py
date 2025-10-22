@@ -15,7 +15,6 @@ async def check_duel_readiness():
 
 # Запускаем проверку в отдельной задаче
 import asyncio
-asyncio.create_task(check_duel_readiness())
 import random
 import asyncio
 import os
@@ -580,21 +579,33 @@ def start_health_server():
     print(f"✅ Health server started on port {port}")
     server.serve_forever()
 
-if __name__ == "__main__":
+async def main_async():
+    """Асинхронная основная функция"""
+    if not TOKEN:
+        logger.error("❌ Токен не найден! Добавь TELEGRAM_TOKEN в Environment Variables")
+        return
+    
+    # Запускаем проверку дуэлей в фоне
+    asyncio.create_task(check_duel_readiness())
+    
+    application = Application.builder().token(TOKEN).build()
+    
+    # Обработчики команд
+    application.add_handler(CommandHandler("start", start))
+    application.add_handler(CommandHandler("accept", accept_duel))
+    application.add_handler(CallbackQueryHandler(button_handler))
+    
+    logger.info("🎮 Битва Стикеров запускается...")
+    await application.run_polling()
+
+def main():
+    """Основная функция"""
     # Запускаем HTTP сервер в отдельном потоке
     server_thread = threading.Thread(target=start_health_server, daemon=True)
     server_thread.start()
     
     # Запускаем бота
-    if not TOKEN:
-        logger.error("❌ Токен не найден! Добавь TELEGRAM_TOKEN в Environment Variables")
-    else:
-        application = Application.builder().token(TOKEN).build()
-        
-        # Обработчики команд
-        application.add_handler(CommandHandler("start", start))
-        application.add_handler(CommandHandler("accept", accept_duel))
-        application.add_handler(CallbackQueryHandler(button_handler))
-        
-        logger.info("🎮 Битва Стикеров запускается...")
-        application.run_polling()
+    asyncio.run(main_async())
+
+if __name__ == "__main__":
+    main()
